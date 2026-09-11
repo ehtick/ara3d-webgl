@@ -28,118 +28,6 @@ We've tried to keep the code as straightforward and legible as possible:
 - The BIM Geometry type definition: [`bimGeometry.ts`](https://github.com/ara3d/ara3d-webgl/blob/main/src/loader/bimGeometry.ts)
 - The conversion to Three.JS geometry: [`buildGeometryGroup.ts`](https://github.com/ara3d/ara3d-webgl/blob/main/src/loader/buildGeometryGroup.ts)
 
-## WebGPU Viewer (multiDrawIndexedIndirect)
-
-Alongside the Three.js viewer there is a second loader and renderer, in
-[`src/gpu`](https://github.com/ara3d/ara3d-webgl/tree/main/src/gpu), that draws
-a whole model with Chromium's experimental
-[`multiDrawIndexedIndirect`](https://chromestatus.com/feature/5121353697788928)
-WebGPU extension.
-
-It works differently from the Three.js path:
-
-- The BOS vertex columns are uploaded to the GPU unchanged, as three `sint32`
-  vertex buffers. No `BufferGeometry` objects and no float conversion.
-- Every visible instance becomes one indirect draw command, and every transform
-  and color lives in one storage buffer. Nothing is merged and nothing is
-  batched by material.
-- One `multiDrawIndexedIndirect` call per pass draws the model.
-
-The demo is `examples/example-webgpu-multidraw.html`. It shows the adapter,
-whether the extension is present, the draw and triangle counts, and a frame
-timer. A checkbox switches between the multi-draw call and one
-`drawIndexedIndirect` per instance, which is the same buffers with more CPU work.
-
-### Camera controls
-
-Both viewers share one set of camera controls, in
-[`src/controls`](https://github.com/ara3d/ara3d-webgl/tree/main/src/controls).
-`CameraControls` needs nothing but a canvas: it owns the camera and registers
-the mouse, keyboard and touch handlers, and a renderer drives it by calling
-`update(deltaTime)` once per frame.
-
-```js
-const controls = new CameraControls(canvas)
-controls.frame(bounds)          // look at a box, and make it the Home target
-controls.update(deltaTime)      // once per frame
-```
-
-Left drag orbits, middle drag pans, right drag looks around, and the wheel
-zooms. W/A/S/D or the arrow keys fly, Q and E move down and up, shift goes
-faster, `+` and `-` change the speed, `F` frames the model, `Home` returns to
-the framed view and `P` toggles orthographic.
-
-BOS geometry is Z-up while the camera works in the Y-up space Three.js
-assumes. The Three.js viewer converts by rotating the model root; the WebGPU
-viewer folds the same rotation into the matrices it hands the renderer, so
-geometry, instance transforms and culling all stay in model space. That code is
-[`gpuCameraView.ts`](https://github.com/ara3d/ara3d-webgl/blob/main/src/gpu/gpuCameraView.ts).
-
-### Optional GPU frustum culling
-
-Culling is off by default and switched on with a checkbox in the demo, or
-`renderer.culling = true`. When it is on, a compute pass tests each instance's
-world space bounding sphere against the six frustum planes and appends the
-survivors' commands to a second indirect buffer. The atomic counter it writes
-is handed to `multiDrawIndexedIndirect` as its draw count buffer, so the CPU
-never learns how many instances were visible and does no per-frame work that
-scales with the model.
-
-This needs the multi-draw extension. The fallback path has to know the number
-of draws on the CPU to issue them, so it always draws everything.
-
-How much it helps depends entirely on how much of the model is off screen. With
-the stadium sample framed so the whole building is visible, nothing is outside
-the frustum and all 226,964 commands are still submitted. Moving the camera
-inside the bowl leaves about 36,500 of them, and the viewer runs at 85 FPS
-there.
-
-### Optional GPU contribution culling
-
-The same compute pass can also drop instances that are too small to see. Switch
-it on with the second checkbox in the demo, or `renderer.contributionCulling =
-true`, and set `renderer.contributionThreshold` to the smallest projected
-diameter, in pixels, that is still worth drawing. It uses the same bounding
-sphere as the frustum test, projected with the camera's vertical scale and the
-viewport height, and either flag on its own is enough to run the pass.
-
-The default threshold is 0.1 pixels, which is deliberately tiny. BIM models are
-full of small repeated elements in alternating patterns, such as facade panels
-or mullions. Dropping those aggressively does not make the model look simpler,
-it makes it look wrong: the pattern breaks up and the object reads as damaged
-rather than distant. A threshold near zero only removes instances that could not
-have coloured a pixel anyway. Raise it if you want the speed and can accept the
-artefacts.
-
-Both flags are off by default, so behaviour is unchanged unless you opt in.
-
-The extension is behind a flag. Launch the browser with:
-
-```bash
-chrome --enable-unsafe-webgpu --enable-dawn-features=multi_draw_indirect
-```
-
-Without the flag the demo still runs on the fallback path and says so. The
-`indirect-first-instance` WebGPU feature is required either way.
-
-To avoid the flag, `npm run electron` opens the same demo in an Electron window
-that sets those switches for itself. See [electron/README.md](electron/README.md).
-
-Measured on an Intel Xe-LPG integrated GPU with the Snowdon Towers sample
-(29,666 instances, 6.2M triangles, 1384x749):
-
-| Mode | FPS | CPU ms per frame |
-| --- | --- | --- |
-| `multiDrawIndexedIndirect` | 124 | 0.19 |
-| `drawIndexedIndirect` per instance | 58 | 1.26 |
-
-And with the much larger stadium sample (226,964 instances, 56.5M triangles),
-framed so the whole model is visible:
-
-| Mode | FPS | CPU ms per frame |
-| --- | --- | --- |
-| `multiDrawIndexedIndirect` | 19 | 0.19 |
-| `drawIndexedIndirect` per instance | 5.8 | 34.0 |
 
 ## Building and Running 
 
@@ -153,6 +41,8 @@ Some of the common tasks, which can be found in the `package.json`.
 - `npm run build:lib` - Building the library as a JavaScript module (`.mjs`) file
 
 ## Camera Controls
+
+The controls live in `src/controls`. `CameraControls` needs nothing but a canvas: it owns the camera and registers the mouse, keyboard and touch handlers, and the viewer drives it by calling `update(deltaTime)` once per frame.
 
 ### Keyboard
 

@@ -13,7 +13,7 @@ module.exports = {
   rules: {},
   overrides: [
     {
-      // TypeScript already resolves globals such as the WebGPU types.
+      // TypeScript already resolves DOM and library globals.
       files: ['*.ts'],
       rules: { 'no-undef': 'off' },
     },
